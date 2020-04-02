@@ -596,6 +596,11 @@ def train_opts(parser):
                    "model faster and smaller")
 
 
+    group = parser.add_argument_group('Regularization')
+    group.add('--weight_decay', '-weight_decay', type=float, default=0,
+              help="L2 Regularization")
+
+
 
 def translate_opts(parser):
     """ Translation / inference options """
