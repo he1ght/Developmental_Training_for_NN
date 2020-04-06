@@ -52,6 +52,15 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
         checkpoint = torch.load(opt.train_from,
                                 map_location=lambda storage, loc: storage)
         model_opt = ArgumentParser.ckpt_model_opts(checkpoint["opt"])
+
+        # For Transfer Learning
+        model_opt.dropout = opt.dropout
+        model_opt.weight_decay = opt.weight_decay
+        try:
+            model_opt.attention_dropout = opt.attention_dropout
+        except AttributeError:
+            model_opt.attention_dropout = model_opt.dropout
+
         ArgumentParser.update_model_opts(model_opt)
         ArgumentParser.validate_model_opts(model_opt)
         logger.info('Loading vocab from checkpoint at %s.' % opt.train_from)
