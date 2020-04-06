@@ -407,7 +407,7 @@ def train_opts(parser):
               help="If training from a checkpoint then this is the "
                    "path to the pretrained model's state_dict.")
     group.add('--reset_optim', '-reset_optim', default='none',
-              choices=['none', 'all', 'states', 'keep_states'],
+              choices=['none', 'all', 'states', 'keep_states', 'keep_steps'],
               help="Optimization resetter when train_from.")
 
     # Pretrained word vectors

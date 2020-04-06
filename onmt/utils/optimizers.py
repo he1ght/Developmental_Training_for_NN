@@ -280,6 +280,10 @@ class Optimizer(object):
             elif opt.reset_optim == 'keep_states':
                 # Reset options, keep optimizer.
                 optim_state_dict = ckpt_state_dict
+            elif opt.reset_optim == 'keep_steps':
+                # For Transfer Learning
+                ckpt_state_dict.pop('optimizer')
+                optim_state_dict = ckpt_state_dict
 
         optimizer = cls(
             build_torch_optimizer(model, optim_opt),
