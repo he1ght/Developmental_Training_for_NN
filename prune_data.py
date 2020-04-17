@@ -87,14 +87,13 @@ def remove_blank_sync(input_s, output_s, input_t, output_t):
     of_t = open(output_t, "w", encoding="utf-8")
 
     blank_idx = list(set(blank_idx))
-    print("Total line: {}. {} blank lines detected.".format(idx, len(blank_idx)))
+    total_len = idx
+    print("Total line: {}. {} blank lines detected.".format(total_len, len(blank_idx)))
 
-    idx = 0
-    while True:
+    for idx in range(total_len):
         s = f_s.readline()
         t = f_t.readline()
         if not s or not t: break
-        idx += 1
         if idx in blank_idx:
             # print(idx)
             pass
