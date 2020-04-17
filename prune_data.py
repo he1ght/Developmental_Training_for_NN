@@ -67,18 +67,18 @@ def remove_blank_sync(input_s, output_s, input_t, output_t):
     while True:
         line = f_s.readline()
         if not line: break
+        idx += 1
         if line is '\n':
             blank_idx.append(idx)
             continue
-        idx += 1
     idx = 0
     while True:
         line = f_t.readline()
         if not line: break
+        idx += 1
         if line is '\n':
             blank_idx.append(idx)
             continue
-        idx += 1
 
     f_s.close()
     f_t.close()
@@ -89,6 +89,7 @@ def remove_blank_sync(input_s, output_s, input_t, output_t):
     of_t = open(output_t, "w", encoding="utf-8")
 
     blank_idx = list(set(blank_idx))
+    print("Total line: {}. {} blank lines detected.".format(idx, len(blank_idx)))
 
     idx = 0
     while True:
@@ -97,7 +98,8 @@ def remove_blank_sync(input_s, output_s, input_t, output_t):
         if not s or not t: break
         idx += 1
         if idx in blank_idx:
-            print(idx)
+            # print(idx)
+            pass
         else:
             of_s.write(s)
             of_t.write(t)
@@ -106,7 +108,6 @@ def remove_blank_sync(input_s, output_s, input_t, output_t):
     f_t.close()
     of_s.close()
     of_t.close()
-    print("Total line: {}. {} blank lines detected.".format(idx, len(blank_idx)))
 
 
 def cut_data_size(limit_size, src_input, src_output, tgt_input, tgt_output):
