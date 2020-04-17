@@ -94,7 +94,7 @@ def remove_blank_sync(input_s, output_s, input_t, output_t):
     while True:
         s = f_s.readline()
         t = f_t.readline()
-        if not line: break
+        if not s or not t: break
         if idx in blank_idx:
             continue
         of_s.write(s)
