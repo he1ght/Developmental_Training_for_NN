@@ -97,9 +97,10 @@ def remove_blank_sync(input_s, output_s, input_t, output_t):
         if not s or not t: break
         idx += 1
         if idx in blank_idx:
-            continue
-        of_s.write(s)
-        of_t.write(t)
+            print(idx)
+        else:
+            of_s.write(s)
+            of_t.write(t)
 
     f_s.close()
     f_t.close()
