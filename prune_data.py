@@ -58,6 +58,49 @@ def remove_blank(input, output):
     print("Total line: {}. {} blank lines detected.".format(count, blk_cnt))
 
 
+def remove_blank_sync(input_s, output_s, input_t, output_t):
+    f_s = open(input_s, "r", encoding="utf-8")
+    f_t = open(input_t, "r", encoding="utf-8")
+
+    blank_idx = []
+    s_lines = []
+    t_lines = []
+    idx = 0
+    while True:
+        line = f_s.readline()
+        if not line: break
+        s_lines.append(line)
+        if line is '\n':
+            blank_idx.append(idx)
+            continue
+        idx += 1
+    idx = 0
+    while True:
+        line = f_t.readline()
+        if not line: break
+        t_lines.append(line)
+        if line is '\n':
+            blank_idx.append(idx)
+            continue
+        idx += 1
+
+    f_s.close()
+    f_t.close()
+    of_s = open(output_s, "w", encoding="utf-8")
+    of_t = open(output_t, "w", encoding="utf-8")
+
+    blank_idx = list(set(blank_idx))
+    for i, (s, t) in enumerate(zip(s_lines, t_lines)):
+        if i in blank_idx:
+            continue
+        of_s.write(s)
+        of_t.write(t)
+
+    of_s.close()
+    of_t.close()
+    print("Total line: {}. {} blank lines detected.".format(len(s_lines), len(blank_idx)))
+
+
 def cut_data_size(limit_size, src_input, src_output, tgt_input, tgt_output):
     limit_size = int(limit_size)
     with open(src_input, "r", encoding="utf-8") as f:
