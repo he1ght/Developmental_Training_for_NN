@@ -67,18 +67,16 @@ def remove_blank_sync(input_s, output_s, input_t, output_t):
     while True:
         line = f_s.readline()
         if not line: break
-        idx += 1
         if line is '\n':
             blank_idx.append(idx)
-            continue
+        idx += 1
     idx = 0
     while True:
         line = f_t.readline()
         if not line: break
-        idx += 1
         if line is '\n':
             blank_idx.append(idx)
-            continue
+        idx += 1
 
     f_s.close()
     f_t.close()
