@@ -61,11 +61,13 @@ def cut_data_size(valid_rate, src_input, src_output, tgt_input, tgt_output):
         total_sent = f.readlines()
     valid_size = int(len(total_sent) * valid_rate)
     train_size = len(total_sent) - valid_size
-
-    src_train_output = src_output + "_train.txt"
-    src_valid_output = src_output + "_valid.txt"
-    tgt_train_output = tgt_output + "_train.txt"
-    tgt_valid_output = tgt_output + "_valid.txt"
+    import os
+    src_tail = os.path.splitext(src_input)[1]
+    tgt_tail = os.path.splitext(tgt_input)[1]
+    src_train_output = src_output + "_train" + src_tail
+    src_valid_output = src_output + "_valid" + src_tail
+    tgt_train_output = tgt_output + "_train" + tgt_tail
+    tgt_valid_output = tgt_output + "_valid" + tgt_tail
 
     print("get src {} sentences".format(len(total_sent)))
     rand_idx_array = random.sample(range(len(total_sent)), valid_size)

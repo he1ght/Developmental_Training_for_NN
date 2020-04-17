@@ -44,15 +44,18 @@ def remove_blank(input, output):
     f = open(input, "r", encoding="utf-8")
     of = open(output, "w", encoding="utf-8")
     count = 0
+    blk_cnt = 0
     while True:
         line = f.readline()
         if not line: break
-        if line is '\n': continue
         count += 1
+        if line is '\n':
+            blk_cnt += 1
+            continue
         of.write(line)
     f.close()
     of.close()
-    print(count)
+    print("Total line: {}. {} blank lines detected.".format(count, blk_cnt))
 
 
 def cut_data_size(limit_size, src_input, src_output, tgt_input, tgt_output):
