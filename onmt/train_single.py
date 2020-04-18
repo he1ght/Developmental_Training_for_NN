@@ -54,8 +54,9 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
         model_opt = ArgumentParser.ckpt_model_opts(checkpoint["opt"])
 
         # For Transfer Learning
-        model_opt.dropout = opt.dropout
-        model_opt.weight_decay = opt.weight_decay
+        if opt.reset_reg:
+            model_opt.dropout = opt.dropout
+            model_opt.weight_decay = opt.weight_decay
         try:
             model_opt.attention_dropout = opt.attention_dropout
         except AttributeError:

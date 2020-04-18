@@ -595,6 +595,8 @@ def train_opts(parser):
     group = parser.add_argument_group('Regularization')
     group.add('--weight_decay', '-weight_decay', type=float, default=0,
               help="L2 Regularization")
+    group.add('--reset_reg', '-reset_reg', action="store_true",
+              help="Reset dropout & L2 penalty.")
 
 
 
