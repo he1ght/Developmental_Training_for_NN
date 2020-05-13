@@ -35,6 +35,10 @@ parser.add_argument('--dropout', type=float, default=0.1,
                     help='dropout rate')
 parser.add_argument('--no-limit', default=False, action='store_true',
                     help='No limit MNIST data size')
+parser.add_argument('--T', type=int, default=1, metavar='N',
+                    help='Temperature')
+parser.add_argument('--alpha', type=float, default=0.7, metavar='N',
+                    help='Alpha')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -89,7 +93,7 @@ def train(epoch, model, loss_fn):
         output = model(data)
         teacher_output = teacher_model(data)
         teacher_output = teacher_output.detach()
-        loss = loss_fn(output, target, teacher_output, T=20.0, alpha=0.7)
+        loss = loss_fn(output, target, teacher_output, T=args.T, alpha=args.alpha)
         loss.backward()
         optimizer.step()
 
