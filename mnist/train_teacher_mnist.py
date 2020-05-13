@@ -2,7 +2,7 @@ from __future__ import print_function
 
 import argparse
 import time
-
+import torch
 import torch.optim as optim
 from torchvision import datasets, transforms
 
