@@ -72,6 +72,7 @@ teacher_model.load_state_dict(checkpoint['model'])
 model = ffn_two_layers(args.hidden, args.dropout)
 if args.cuda:
     model.cuda()
+    teacher_model.cuda()
 
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
