@@ -34,6 +34,8 @@ parser.add_argument('--dropout', type=float, default=0.1,
                     help='dropout rate')
 parser.add_argument('--no-limit', default=False, action='store_true',
                     help='No limit MNIST data size')
+parser.add_argument('--save', type=str, default='teacher_MLP',
+                    help='Save name')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -114,7 +116,7 @@ for epoch in range(1, args.epochs + 1):
     train(epoch, model)
     test(model)
 save_dict = {'args': args.__dict__, 'model': model.state_dict()}
-torch.save(save_dict, 'teacher_MLP.pt')
+torch.save(save_dict, args.save + '.pt')
 # the_model = Net()
 # the_model.load_state_dict(torch.load('teacher_MLP.pth.tar'))
 

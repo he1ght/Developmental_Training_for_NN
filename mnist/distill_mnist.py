@@ -39,6 +39,10 @@ parser.add_argument('--T', type=int, default=1, metavar='N',
                     help='Temperature')
 parser.add_argument('--alpha', type=float, default=0.7, metavar='N',
                     help='Alpha')
+parser.add_argument('--checkpoint', type=str, default='teacher_MLP.pt',
+                    help='Checkpoint name')
+parser.add_argument('--save', type=str, default='distill',
+                    help='Save name')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -64,7 +68,7 @@ test_loader = torch.utils.data.DataLoader(
     ])),
     batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
-checkpoint = torch.load('teacher_MLP.pt')
+checkpoint = torch.load(args.checkpoint)
 model_args = checkpoint['args']
 teacher_model = ffn_two_layers(model_args['hidden'], model_args['dropout'])
 teacher_model.load_state_dict(checkpoint['model'])
@@ -133,7 +137,7 @@ for epoch in range(1, args.epochs + 1):
     train(epoch, model, loss_fn=distillation)
     test(model)
 
-torch.save(model.state_dict(), 'distill.pt')
+torch.save(model.state_dict(), args.save + '.pt')
 # the_model = Net()
 # the_model.load_state_dict(torch.load('student.pth.tar'))
 
