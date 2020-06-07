@@ -43,6 +43,8 @@ parser.add_argument('--checkpoint', type=str, default='teacher_MLP.pt',
                     help='Checkpoint name')
 parser.add_argument('--save', type=str, default='distill',
                     help='Save name')
+parser.add_argument('--kd_loss', type=str, choices=['kl', 'ce'], default='kl',
+                    help='Knowledge distillation loss type. [KL-divergence, Cross Entropy]')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -81,9 +83,15 @@ if args.cuda:
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
 
-def distillation(y, labels, teacher_scores, T, alpha):
-    return nn.KLDivLoss(reduction='batchmean')(F.log_softmax(y / T, dim=1), F.softmax(teacher_scores / T, dim=1)) * (
-                T * T * 2.0 * alpha) + F.cross_entropy(y, labels) * (1. - alpha)
+def distillation(y, labels, teacher_scores, loss_type, T, alpha):
+    if loss_type == 'ce':
+        return nn.CrossEntropyLoss(reduction='batchmean')(F.log_softmax(y / T, dim=1),
+            F.softmax(teacher_scores / T, dim=1)) * (T * T * 2.0 * alpha) + F.cross_entropy(y, labels) * (1. - alpha)
+    elif loss_type == 'kl':
+        return nn.KLDivLoss(reduction='batchmean')(F.log_softmax(y / T, dim=1), F.softmax(teacher_scores / T, dim=1)) *\
+               (T * T * 2.0 * alpha) + F.cross_entropy(y, labels) * (1. - alpha)
+    else:
+        return None
 
 
 def train(epoch, model, loss_fn):
@@ -98,7 +106,7 @@ def train(epoch, model, loss_fn):
         output = model(data)
         teacher_output = teacher_model(data)
         teacher_output = teacher_output.detach()
-        loss = loss_fn(output, target, teacher_output, T=args.T, alpha=args.alpha)
+        loss = loss_fn(output, target, teacher_output, loss_type=args.kd_loss, T=args.T, alpha=args.alpha)
         loss.backward()
         optimizer.step()
 

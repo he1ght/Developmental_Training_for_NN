@@ -40,13 +40,14 @@ parser.add_argument('--checkpoint', type=str, default='teacher_MLP.pt',
                     help='Checkpoint name')
 parser.add_argument('--save', type=str, default='distill',
                     help='Save name')
+parser.add_argument('--kd_loss', type=str, choices=['kl', 'ce'], default='kl',
+                    help='Knowledge distillation loss type. [KL-divergence, Cross Entropy]')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
 torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
-
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 if args.no_limit:
@@ -61,9 +62,9 @@ train_loader = torch.utils.data.DataLoader(tr, batch_size=args.batch_size, shuff
 
 test_loader = torch.utils.data.DataLoader(
     datasets.MNIST('./data_mnist', train=False, transform=transforms.Compose([
-                       transforms.ToTensor(),
-                       transforms.Normalize((0.1307,), (0.3081,))
-                   ])),
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))
+    ])),
     batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
 checkpoint = torch.load(args.checkpoint)
@@ -78,8 +79,15 @@ if args.cuda:
 
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
-def distill_unlabeled(y, teacher_scores, T):
-    return nn.KLDivLoss()(F.log_softmax(y/T), F.softmax(teacher_scores/T)) * T * T
+
+def distill_unlabeled(y, teacher_scores, loss_type, T):
+    if loss_type == 'ce':
+        return nn.CrossEntropyLoss()(F.log_softmax(y / T), F.softmax(teacher_scores / T)) * T * T
+    elif loss_type == 'kl':
+        return nn.KLDivLoss()(F.log_softmax(y / T), F.softmax(teacher_scores / T)) * T * T
+    else:
+        return None
+
 
 
 def train(epoch, model, loss_fn):
@@ -94,7 +102,7 @@ def train(epoch, model, loss_fn):
         output = model(data)
         teacher_output = teacher_model(data)
         teacher_output = teacher_output.detach()
-        loss = loss_fn(output, teacher_output, T=args.T)
+        loss = loss_fn(output, teacher_output, loss_type=args.kd_loss, T=args.T)
         loss.backward()
         optimizer.step()
 
@@ -104,10 +112,11 @@ def train(epoch, model, loss_fn):
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss.item()))
+                       100. * batch_idx / len(train_loader), loss.item()))
     print('\nTrain set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
         train_loss, correct, len(train_loader.dataset),
         100. * correct / len(train_loader.dataset)))
+
 
 def test(model):
     model.eval()
@@ -118,7 +127,7 @@ def test(model):
             data, target = data.cuda(), target.cuda()
         output = model(data)
         # test_loss += F.cross_entropy(output, target).data[0] # sum up batch loss
-        pred = output.data.max(1, keepdim=True)[1] # get the index of the max log-probability
+        pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
     test_loss /= len(test_loader.dataset)
