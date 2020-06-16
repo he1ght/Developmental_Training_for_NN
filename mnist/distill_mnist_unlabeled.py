@@ -38,6 +38,8 @@ parser.add_argument('--T', type=int, default=1, metavar='N',
                     help='Temperature')
 parser.add_argument('--checkpoint', type=str, default='teacher_MLP.pt',
                     help='Checkpoint name')
+parser.add_argument('--data', type=str, default='mnist_data.pt',
+                    help='Data name')
 parser.add_argument('--save', type=str, default='distill',
                     help='Save name')
 parser.add_argument('--kd_loss', type=str, choices=['kl', 'ce'], default='kl',
@@ -57,7 +59,7 @@ if args.no_limit:
                             transforms.Normalize((0.1307,), (0.3081,))
                         ]))
 else:
-    tr = torch.load('mnist_data.pt')
+    tr = torch.load(args.data)
 train_loader = torch.utils.data.DataLoader(tr, batch_size=args.batch_size, shuffle=True, **kwargs)
 
 test_loader = torch.utils.data.DataLoader(
