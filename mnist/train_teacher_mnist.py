@@ -54,7 +54,7 @@ if args.no_limit:
                             transforms.Normalize((0.1307,), (0.3081,))
                         ]))
 else:
-    tr = torch.load('mnist_data.pt')
+    tr = torch.load(args.data)
 train_loader = torch.utils.data.DataLoader(tr, batch_size=args.batch_size, shuffle=True, **kwargs)
 
 test_loader = torch.utils.data.DataLoader(
