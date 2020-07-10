@@ -53,6 +53,7 @@ if args.tensorboard:
     writer = SummaryWriter(args.tb_dir + args.save)
 else:
     writer = None
+draw_graph = False
 
 kwargs = {'num_workers': 0, 'pin_memory': True} if args.cuda else {}
 
@@ -92,8 +93,9 @@ def train(epoch, model):
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
-        if writer is not None:
+        if writer is not None and not draw_graph:
             writer.add_graph(model, data)
+            draw_graph = True
         optimizer.zero_grad()
         output = model(data)
         loss = crit(output, target)
@@ -102,9 +104,9 @@ def train(epoch, model):
         train_loss += loss.item()  # sum up batch loss
         pred = output.data.max(1, keepdim=True)[1]
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
-        writer.add_scalar('progress/loss',
-                        loss.item(),
-                          (batch_idx+1)*data.size(0) + (epoch -1 ) * len(train_loader.dataset))
+        if writer is not None:
+            writer.add_scalar('progress/loss', loss.item(),
+                              (batch_idx+1)*data.size(0) + (epoch -1 ) * len(train_loader.dataset))
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
@@ -112,8 +114,9 @@ def train(epoch, model):
     print('\nTrain set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
         train_loss, correct, len(train_loader.dataset),
         100. * correct / len(train_loader.dataset)))
-    writer.add_scalar('train/loss', train_loss, epoch)
-    writer.add_scalar('train/acc', 100. * correct / len(train_loader.dataset), epoch)
+    if writer is not None:
+        writer.add_scalar('train/loss', train_loss, epoch)
+        writer.add_scalar('train/acc', 100. * correct / len(train_loader.dataset), epoch)
 
 
 def test(epoch, model):
@@ -132,12 +135,14 @@ def test(epoch, model):
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
-    writer.add_scalar('test/loss', test_loss, epoch)
-    writer.add_scalar('test/acc', 100. * correct / len(test_loader.dataset), epoch)
+    if writer is not None:
+        writer.add_scalar('test/loss', test_loss, epoch)
+        writer.add_scalar('test/acc', 100. * correct / len(test_loader.dataset), epoch)
 
 for epoch in range(1, args.epochs + 1):
     train(epoch, model)
     test(epoch, model)
+
 writer.close()
 save_dict = {'args': args.__dict__, 'model': model.state_dict()}
 torch.save(save_dict, args.save + '.pt')
