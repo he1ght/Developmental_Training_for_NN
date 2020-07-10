@@ -90,6 +90,7 @@ def train(epoch, model):
     model.train()
     train_loss = 0
     correct = 0
+    global draw_graph
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
