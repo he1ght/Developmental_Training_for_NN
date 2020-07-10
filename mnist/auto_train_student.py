@@ -26,5 +26,5 @@ for d_size in data_size_list:
                              '--tensorboard',
                              '--seed', d_seed, '--data', 'preprocessed_data/' + data_name + '.pt',
                              '--T', T, '--alpha', alpha, '--dropout', student_do,
-                             '--checkpoint', checkpoint_name + '.pt',
+                             '--checkpoint', 'model/' + checkpoint_name + '.pt',
                              '--save', 'model/' + save_name])

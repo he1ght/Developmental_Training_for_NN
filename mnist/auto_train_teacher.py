@@ -22,4 +22,4 @@ for d_size in data_size_list:
             subprocess.call(['python', fl, '--epochs', '50', '--batch-size', '128', '--lr', '0.01', '--hidden', '500',
                              '--tensorboard',
                              '--seed', d_seed, '--data', 'preprocessed_data/' + data_name + '.pt', '--dropout', do,
-                             '--save', save_name])
+                             '--save', 'model/' + save_name])
