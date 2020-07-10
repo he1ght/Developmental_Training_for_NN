@@ -93,7 +93,8 @@ if args.tensorboard:
     writer = SummaryWriter(args.tb_dir + args.save)
 else:
     writer = None
-draw_graph=False
+
+draw_graph = False
 
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
@@ -114,6 +115,7 @@ def train(epoch, model, loss_fn):
     teacher_model.eval()
     train_loss = 0
     correct = 0
+    global draw_graph
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
