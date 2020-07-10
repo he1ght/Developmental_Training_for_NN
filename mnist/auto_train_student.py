@@ -4,8 +4,8 @@ from glob import glob
 # fls = glob("./")
 
 data_size_list = ['100', '1000', '3000', '10000']
-data_seed_list = ['1', '2', '3']
-dropout_list = ['0.01', '0.1', '0.3', '0.5', '0.7', '0.9', '0.9', '0.99']
+data_seed_list = ['1']  # , '2', '3']
+dropout_list = ['0.01', '0.1', '0.3', '0.5', '0.7', '0.9', '0.99']
 # Penalty
 # Batch Norm
 student_do = '0.3'
