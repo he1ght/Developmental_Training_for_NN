@@ -7,6 +7,7 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 
 from mnist_model import *
+from torch.utils.tensorboard import SummaryWriter
 
 start_time = time.time()
 
@@ -38,12 +39,20 @@ parser.add_argument('--no-limit', default=False, action='store_true',
                     help='No limit MNIST data size')
 parser.add_argument('--save', type=str, default='teacher_MLP',
                     help='Save name')
+parser.add_argument('--tensorboard', action='store_true', default=False,
+                    help='Tensorboard')
+parser.add_argument('--tb_dir', type=str, default='tb_log/',
+                    help='Tensorboard log dir')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
 torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
+if args.tensorboard:
+    writer = SummaryWriter(args.tb_dir + args.save)
+else:
+    writer = None
 
 kwargs = {'num_workers': 0, 'pin_memory': True} if args.cuda else {}
 
@@ -68,6 +77,9 @@ model = ffn_two_layers(args.hidden, args.dropout)
 if args.cuda:
     model.cuda()
 
+
+
+
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum,
                       weight_decay=5e-4)
 crit = torch.nn.CrossEntropyLoss()
@@ -80,6 +92,8 @@ def train(epoch, model):
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
+        if writer is not None:
+            writer.add_graph(model, data)
         optimizer.zero_grad()
         output = model(data)
         loss = crit(output, target)
@@ -88,6 +102,9 @@ def train(epoch, model):
         train_loss += loss.item()  # sum up batch loss
         pred = output.data.max(1, keepdim=True)[1]
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
+        writer.add_scalar('progress/loss',
+                        loss.item(),
+                          (batch_idx+1)*data.size(0) + (epoch -1 ) * len(train_loader.dataset))
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
@@ -95,9 +112,11 @@ def train(epoch, model):
     print('\nTrain set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
         train_loss, correct, len(train_loader.dataset),
         100. * correct / len(train_loader.dataset)))
+    writer.add_scalar('train/loss', train_loss, epoch)
+    writer.add_scalar('train/acc', 100. * correct / len(train_loader.dataset), epoch)
 
 
-def test(model):
+def test(epoch, model):
     model.eval()
     test_loss = 0
     correct = 0
@@ -113,10 +132,13 @@ def test(model):
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
+    writer.add_scalar('test/loss', test_loss, epoch)
+    writer.add_scalar('test/acc', 100. * correct / len(test_loader.dataset), epoch)
 
 for epoch in range(1, args.epochs + 1):
     train(epoch, model)
-    test(model)
+    test(epoch, model)
+writer.close()
 save_dict = {'args': args.__dict__, 'model': model.state_dict()}
 torch.save(save_dict, args.save + '.pt')
 # the_model = Net()

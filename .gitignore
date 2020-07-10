@@ -13,6 +13,7 @@ data_mnist/
 #*.log
 board_logs/
 *events.out.tfevents*
+tb_log/
 
 .DS_Store
 
