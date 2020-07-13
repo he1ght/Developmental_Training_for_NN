@@ -45,12 +45,15 @@ parser.add_argument('--tensorboard', action='store_true', default=False,
                     help='Tensorboard')
 parser.add_argument('--tb_dir', type=str, default='tb_log/',
                     help='Tensorboard log dir')
+parser.add_argument('--gpu', type=int, default=0,
+                    help='GPU no. (default: 0)')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
 torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
+    device = 'cuda:' + str(args.gpu)
 if args.tensorboard:
     writer = SummaryWriter(args.tb_dir + args.save)
 else:
@@ -78,7 +81,7 @@ test_loader = torch.utils.data.DataLoader(
 
 model = ffn_two_layers(args.hidden, args.dropout, batch_norm=args.batch_norm)
 if args.cuda:
-    model.cuda()
+    model.to(device)
 
 
 
@@ -95,7 +98,7 @@ def train(epoch, model):
     global draw_graph
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
-            data, target = data.cuda(), target.cuda()
+            data, target = data.to(device), target.to(device)
         if writer is not None and not draw_graph:
             writer.add_graph(model, data)
             draw_graph = True
