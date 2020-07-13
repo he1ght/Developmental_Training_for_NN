@@ -33,6 +33,8 @@ parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
 parser.add_argument('--hidden', type=int, default=1000, metavar='N',
                     help='hidden unit size')
+parser.add_argument('--batch_norm', action='store_true', default=False,
+                    help='batch_norm')
 parser.add_argument('--dropout', type=float, default=0.1,
                     help='dropout rate')
 parser.add_argument('--no-limit', default=False, action='store_true',
@@ -74,7 +76,7 @@ test_loader = torch.utils.data.DataLoader(
     ])),
     batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
-model = ffn_two_layers(args.hidden, args.dropout)
+model = ffn_two_layers(args.hidden, args.dropout, batch_norm=args.batch_norm)
 if args.cuda:
     model.cuda()
 

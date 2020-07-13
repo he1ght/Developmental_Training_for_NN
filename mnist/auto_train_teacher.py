@@ -18,8 +18,8 @@ for d_size in data_size_list:
     for do in dropout_list:
         for d_seed in data_seed_list:
             data_name = d_size + '_s' + d_seed
-            save_name = data_name + '-' + do + 'do'
+            save_name = data_name + '-' + do + 'do' + '_bn'
             subprocess.call(['python', fl, '--epochs', '50', '--batch-size', '128', '--lr', '0.01', '--hidden', '500',
-                             '--tensorboard',
+                             '--tensorboard', '--batch_norm'
                              '--seed', d_seed, '--data', 'preprocessed_data/' + data_name + '.pt', '--dropout', do,
                              '--save', 'model/' + save_name])
