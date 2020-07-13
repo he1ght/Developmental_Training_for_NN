@@ -23,7 +23,7 @@ for d_size in data_size_list:
             checkpoint_name = data_name + '-' + do + 'do' + '_bn'
             save_name = checkpoint_name + '-student_' + 'do' + student_do + '_bn'
             subprocess.call(['python', fl, '--epochs', '50', '--batch-size', '128', '--lr', '0.01', '--hidden', '500',
-                             '--tensorboard', '--batch_norm',
+                             '--tensorboard', '--batch-norm',
                              '--seed', d_seed, '--data', 'preprocessed_data/' + data_name + '.pt',
                              '--T', T, '--alpha', alpha, '--dropout', student_do,
                              '--checkpoint', 'model/' + checkpoint_name + '.pt',

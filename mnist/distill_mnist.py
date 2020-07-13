@@ -32,7 +32,7 @@ parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
 parser.add_argument('--hidden', type=int, default=1000, metavar='N',
                     help='hidden unit size')
-parser.add_argument('--batch_norm', action='store_true', default=False,
+parser.add_argument('--batch-norm', action='store_true', default=False,
                     help='batch_norm')
 parser.add_argument('--dropout', type=float, default=0.1,
                     help='dropout rate')
@@ -83,7 +83,7 @@ test_loader = torch.utils.data.DataLoader(
 
 checkpoint = torch.load(args.checkpoint)
 model_args = checkpoint['args']
-teacher_model = ffn_two_layers(model_args['hidden'], model_args['dropout'])
+teacher_model = ffn_two_layers(model_args['hidden'], model_args['dropout'], batch_norm=model_args['batch_norm'])
 teacher_model.load_state_dict(checkpoint['model'])
 
 model = ffn_two_layers(args.hidden, args.dropout, batch_norm=args.batch_norm)

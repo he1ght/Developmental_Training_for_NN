@@ -33,7 +33,7 @@ parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                     help='how many batches to wait before logging training status')
 parser.add_argument('--hidden', type=int, default=1000, metavar='N',
                     help='hidden unit size')
-parser.add_argument('--batch_norm', action='store_true', default=False,
+parser.add_argument('--batch-norm', action='store_true', default=False,
                     help='batch_norm')
 parser.add_argument('--dropout', type=float, default=0.1,
                     help='dropout rate')
