@@ -131,7 +131,7 @@ def test(epoch, model):
     correct = 0
     for data, target in test_loader:
         if args.cuda:
-            data, target = data.cuda(), target.cuda()
+            data, target = data.to(device), target.to(device)
         output = model(data)
         test_loss += F.cross_entropy(output, target).item()  # sum up batch loss
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
