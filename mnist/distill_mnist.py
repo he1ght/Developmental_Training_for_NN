@@ -64,7 +64,7 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
-    device = 'cuda:' + str(args.gpu)
+    device = torch.device('cuda:' + str(args.gpu))
 
 kwargs = {'num_workers': 0, 'pin_memory': True} if args.cuda else {}
 if args.no_limit:
@@ -91,8 +91,8 @@ teacher_model.load_state_dict(checkpoint['model'])
 
 model = ffn_two_layers(args.hidden, args.dropout, batch_norm=args.batch_norm)
 if args.cuda:
-    model.to(device)
-    teacher_model.to(device)
+    model = model.to(device)
+    teacher_model = teacher_model.to(device)
 
 if args.tensorboard:
     writer = SummaryWriter(args.tb_dir + args.save)
@@ -123,7 +123,7 @@ def train(epoch, model, loss_fn):
     global draw_graph
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
-            data.to(device), target.to(device)
+            data, target = data.to(device), target.to(device)
 
         if writer is not None and not draw_graph:
             writer.add_graph(model, data)
