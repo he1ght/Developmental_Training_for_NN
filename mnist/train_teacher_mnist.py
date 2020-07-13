@@ -98,7 +98,7 @@ def train(epoch, model):
     global draw_graph
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
-            data, target = data.to(device), target.to(device)
+            data.to(device), target.to(device)
         if writer is not None and not draw_graph:
             writer.add_graph(model, data)
             draw_graph = True
