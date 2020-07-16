@@ -126,3 +126,4 @@ ENV/
 
 # Pytorch
 *.pt
+auto_*.py
