@@ -56,6 +56,8 @@ parser.add_argument('--tb_dir', type=str, default='tb_log/',
                     help='Tensorboard log dir')
 parser.add_argument('--gpu', type=int, default=0,
                     help='GPU no. (default: 0)')
+parser.add_argument('--lambda', type=float, default=0.01,
+                    help='L1/L2 Penalty lambda')
 
 
 args = parser.parse_args()
