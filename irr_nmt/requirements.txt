@@ -1,0 +1,7 @@
+torch>=1.2
+six
+tqdm~=4.30.0
+torchtext==0.4.0
+future
+configargparse
+tensorboard>=1.14

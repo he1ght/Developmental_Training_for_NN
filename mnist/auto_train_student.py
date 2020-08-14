@@ -1,30 +1,51 @@
+
 import subprocess
 from glob import glob
 
-# fls = glob("./")
+max_gpu = 3
+dos = ['0', '0.1', '0.3', '0.5']
+l2s = ['0', '0', '0', '0']
 
-data_size_list = ['100', '1000', '3000', '10000']
-data_seed_list = ['1']  # , '2', '3']
-dropout_list = ['0.01', '0.1', '0.3', '0.5', '0.7', '0.9', '0.99']
-# Penalty
-# Batch Norm
-student_do = '0.3'
-T = '1'
-alpha = '0.1'
+import os
 
-base_data_path = '/home/temp_use/data/'
-base_pred_path = './predict/'
+def child(gpu, do, lrate):
+    epochs = '100'
+    fl = 'distill_mnist.py'
+    data_name = '3000_s1'
+    checkpoint_name = 'dummy_teacher'
+    alpha = '0.1'
+    T = '1'
+    save_name = checkpoint_name + '-student_' + 'do' + do  + '_500h' + lrate + 'L2'
+    subprocess.call(['python', fl, '--epochs', epochs, '--batch-size', '128', '--lr', '0.1', '--hidden', '500',
+                                 '--tensorboard', '--gpu', gpu, '--lrate', lrate, #'--batch-norm',
+                                 '--seed', '1', '--data', 'preprocessed_data/' + data_name + '.pt',
+                                 '--T', T, '--alpha', alpha, '--dropout', do,
+                                 '--checkpoint', 'model/' + checkpoint_name + '.pt',
+                                 '--save', 'model/' + save_name])
+    os._exit(0)  
 
-fl = 'distill_mnist.py'
-for d_size in data_size_list:
-    for do in dropout_list:
-        for d_seed in data_seed_list:
-            data_name = d_size + '_s' + d_seed
-            checkpoint_name = data_name + '-' + do + 'do' + '_100h'
-            save_name = checkpoint_name + '-student_' + 'do' + student_do + '_100h'
-            subprocess.call(['python', fl, '--epochs', '50', '--batch-size', '128', '--lr', '0.01', '--hidden', '100',
-                             '--tensorboard', '--gpu', '1',
-                             '--seed', d_seed, '--data', 'preprocessed_data/' + data_name + '.pt',
-                             '--T', T, '--alpha', alpha, '--dropout', student_do,
-                             '--checkpoint', 'model/' + checkpoint_name + '.pt',
-                             '--save', 'model/' + save_name])
+child_pids = []
+def parent(child_pids):
+    for index in range(max_gpu + 1):
+        newpid = os.fork()
+        if newpid == 0:
+            child(str(index), dos[index], l2s[index])
+        else:
+            child_pids.append(newpid)
+
+
+parent(child_pids)
+for child_pid in child_pids:
+    pid, status = os.waitpid(child_pid, 0)
+
+# child_pids = []
+# parent(child_pids, '0.01')
+# for child_pid in child_pids:
+#     pid, status = os.waitpid(child_pid, 0)
+
+# child_pids = []
+# parent(child_pids, '0.05')
+# for child_pid in child_pids:
+#     pid, status = os.waitpid(child_pid, 0)
+
+print("Done.")

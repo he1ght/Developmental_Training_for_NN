@@ -26,7 +26,7 @@ class ffn_two_layers(nn.Module):
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.fc2(x)
         if self.batch_norm:
-            x = self.bn1(x)
+            x = self.bn2(x)
         x = F.relu(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.fc3(x)

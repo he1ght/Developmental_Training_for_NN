@@ -127,3 +127,8 @@ ENV/
 # Pytorch
 *.pt
 auto_*.py
+tb_log/
+data/
+
+cifar10/
+data_cifar100/

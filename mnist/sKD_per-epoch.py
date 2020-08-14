@@ -7,8 +7,10 @@ import torch
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets, transforms
+import copy
 
 from mnist_model import *
+from evaluater import * 
 
 start_time = time.time()
 
@@ -42,13 +44,13 @@ parser.add_argument('--T', type=int, default=1, metavar='N',
                     help='Temperature')
 parser.add_argument('--alpha', type=float, default=0.7, metavar='N',
                     help='Alpha')
-parser.add_argument('--checkpoint', type=str, default='teacher_MLP.pt',
-                    help='Checkpoint name')
-parser.add_argument('--data', type=str, default='mnist_data.pt',
+parser.add_argument('--model', type=str, choices=['ffnn', 'alexnet', 'resnet50'], default='ffnn',
+                    help='')
+parser.add_argument('--data', type=str, default='cifar_data.pt',
                     help='Data name')
 parser.add_argument('--save', type=str, default='distill',
                     help='Save name')
-parser.add_argument('--kd_loss', type=str, choices=['kl', 'ce'], default='kl',
+parser.add_argument('--kd_loss', type=str, choices=['kl', 'ce'], default='ce',
                     help='Knowledge distillation loss type. [KL-divergence, Cross Entropy]')
 parser.add_argument('--tensorboard', action='store_true', default=False,
                     help='Tensorboard')
@@ -86,15 +88,17 @@ test_loader = torch.utils.data.DataLoader(
     ])),
     batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
-checkpoint = torch.load(args.checkpoint, map_location=lambda storage, loc: storage.cuda(args.gpu))
-model_args = checkpoint['args']
-teacher_model = ffn_two_layers(model_args['hidden'], model_args['dropout'], batch_norm=model_args['batch_norm'])
-teacher_model.load_state_dict(checkpoint['model'])
+# checkpoint = torch.load(args.checkpoint)
+# model_args = checkpoint['args']
+# teacher_model = ffn_two_layers(model_args['hidden'], model_args['dropout'], batch_norm=model_args['batch_norm'])
+# teacher_model.load_state_dict(checkpoint['model'])
 
 model = ffn_two_layers(args.hidden, args.dropout, batch_norm=args.batch_norm)
+teacher_model = None   
+
 if args.cuda:
     model = model.to(device)
-    teacher_model = teacher_model.to(device)
+    # teacher_model = teacher_model.to(device)
 
 if args.tensorboard:
     writer = SummaryWriter(args.tb_dir + args.save)
@@ -102,28 +106,49 @@ else:
     writer = None
 
 draw_graph = False
+prev_lr = args.lr
 
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.lrate)
 
 
-def distillation(y, labels, teacher_scores, loss_type, T, alpha):
-    if loss_type == 'ce':
-        return nn.CrossEntropyLoss(reduction='batchmean')(F.log_softmax(y / T, dim=1),
-            F.softmax(teacher_scores / T, dim=1)) * (T * T * 2.0 * alpha) + F.cross_entropy(y, labels) * (1. - alpha)
-    elif loss_type == 'kl':
-        return nn.KLDivLoss(reduction='batchmean')(F.log_softmax(y / T, dim=1), F.softmax(teacher_scores / T, dim=1)) *\
-               (T * T * 2.0 * alpha) + F.cross_entropy(y, labels) * (1. - alpha)
+def softmax_cross_entropy_with_softtarget(input, target, reduction='mean'):
+        """
+        :param input: (batch, *)
+        :param target: (batch, *) same shape as input, each item must be a valid distribution: target[i, :].sum() == 1.
+        """
+        logprobs = torch.nn.functional.log_softmax(input.view(input.shape[0], -1), dim=1)
+        batchloss = - torch.sum(target.view(target.shape[0], -1) * logprobs, dim=1)
+        if reduction == 'none':
+            return batchloss
+        elif reduction == 'mean':
+            return torch.mean(batchloss)
+        elif reduction == 'sum':
+            return torch.sum(batchloss)
+        else:
+            raise NotImplementedError('Unsupported reduction mode.')
+
+def self_distillation(y, labels, teacher_scores, loss_type, T, alpha):
+    if teacher_scores is not None:
+        labels = torch.nn.functional.one_hot(labels, 100)
+        # pred = y.max(1, keepdim=True)[1].long()
+        if loss_type == 'kl':
+            return nn.KLDivLoss(reduction='batchmean')(F.log_softmax(y / T, dim=1), (1-alpha)*labels+ alpha*F.log_softmax(teacher_scores / T, dim=1) )          
+        else:
+            # return softmax_cross_entropy_with_softtarget(y, F.softmax((1-alpha)*labels+ alpha*F.softmax(teacher_scores / T, dim=1), dim=1))
+            return softmax_cross_entropy_with_softtarget(y, (1-alpha)*labels+ alpha*F.softmax(teacher_scores / T, dim=1))
     else:
-        return None
+        return F.cross_entropy(y, labels)
 
 progress_x_axis = 0
 
 def train(epoch, model, loss_fn):
+    global teacher_model
     model.train()
-    teacher_model.eval()
+    # teacher_model = None
     train_loss = 0
     correct = 0
-    global draw_graph, progress_x_axis
+    global draw_graph, progress_x_axis, prev_lr
+    alpha_t = args.alpha * (epoch/args.epochs)
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
             data, target = data.to(device), target.to(device)
@@ -131,11 +156,17 @@ def train(epoch, model, loss_fn):
         if writer is not None and not draw_graph:
             writer.add_graph(model, data)
             draw_graph = True
+        
         optimizer.zero_grad()
         output = model(data)
-        teacher_output = teacher_model(data)
-        teacher_output = teacher_output.detach()
-        loss = loss_fn(output, target, teacher_output, loss_type=args.kd_loss, T=args.T, alpha=args.alpha)
+        
+        with torch.no_grad():
+            if teacher_model is not None:
+                teacher_output = teacher_model(data)
+                teacher_output = teacher_output.detach()
+            else:
+                teacher_output = None
+        loss = loss_fn(output, target, teacher_output, loss_type=args.kd_loss,  T=args.T, alpha=alpha_t)
         loss.backward()
         optimizer.step()
 
@@ -150,41 +181,76 @@ def train(epoch, model, loss_fn):
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                        100. * batch_idx / len(train_loader), loss.item()))
-
+    
     print('\nTrain set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
         train_loss, correct, len(train_loader.dataset),
         100. * correct / len(train_loader.dataset)))
     if writer is not None:
         writer.add_scalar('train/loss', train_loss, epoch)
         writer.add_scalar('train/acc', 100. * correct / len(train_loader.dataset), epoch)
+        writer.add_scalar('train/lr', prev_lr, epoch)
+        writer.add_scalar('train/alpha', alpha_t, epoch)
 
 
 def test(epoch, model, loss_fn):
+    global teacher_model
     model.eval()
     test_loss = 0
     correct = 0
-    for data, target in test_loader:
-        if args.cuda:
-            data, target = data.to(device), target.to(device)
-        output = model(data)
-        teacher_output = teacher_model(data)
-        teacher_output = teacher_output.detach()
-        test_loss += loss_fn(output, target, teacher_output, loss_type=args.kd_loss, T=args.T, alpha=args.alpha).detach()
-        pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
-        correct += pred.eq(target.data.view_as(pred)).cpu().sum()
+    test_te1 = 0
+    test_te5 = 0
+    test_nll = 0
+    with torch.no_grad():
+        for data, target in test_loader:
+            if args.cuda:
+                data, target = data.to(device), target.to(device)
+                # target = torch.nn.functional.one_hot(target, 100)
+            output = model(data)
+            if teacher_model is not None:
+                teacher_output = teacher_model(data)
+                teacher_output = teacher_output.detach()
+            else:
+                teacher_output = None
+            test_loss += loss_fn(output, target, teacher_output, loss_type=args.kd_loss, T=args.T, alpha=args.alpha).detach()
+            te = top_error(output, target, (1, 5))
+            nl = nll(output, target)
+            test_te1 += te[0] * int(data.size(0))
+            test_te5 += te[1] * int(data.size(0))
+            test_nll += nl * int(data.size(0))
+            pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
+            correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
-    test_loss /= len(test_loader.dataset)
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset)))
-    if writer is not None:
-        writer.add_scalar('test/loss', test_loss, epoch)
-        writer.add_scalar('test/acc', 100. * correct / len(test_loader.dataset), epoch)
+        test_loss /= len(test_loader.dataset)
+        test_te1 /= len(test_loader.dataset)
+        test_te5 /= len(test_loader.dataset)
+        test_nll /= len(test_loader.dataset)
+        print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
+            test_loss, correct, len(test_loader.dataset),
+            100. * correct / len(test_loader.dataset)))
+        if writer is not None:
+            writer.add_scalar('test/loss', test_loss, epoch)
+            writer.add_scalar('test/acc', 100. * correct / len(test_loader.dataset), epoch)
 
+            writer.add_scalar('test/Top Error 1', test_te1, epoch)
+            writer.add_scalar('test/Top Error 5', test_te5, epoch)
+            writer.add_scalar('test/NLL loss', test_nll, epoch)
+
+    with torch.no_grad():
+        teacher_model = copy.deepcopy(model)
+        teacher_model.eval()
+
+def adjust_lr():
+    global prev_lr
+    lr = prev_lr * 0.1
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+    prev_lr = lr
 
 for epoch in range(1, args.epochs + 1):
-    train(epoch, model, loss_fn=distillation)
-    test(epoch, model, loss_fn=distillation)
+    if (epoch == 150 or epoch ==225):
+        adjust_lr()
+    train(epoch, model, loss_fn=self_distillation)
+    test(epoch, model, loss_fn=self_distillation)
 
 writer.close()
 save_dict = {'args': args.__dict__, 'model': model.state_dict()}
