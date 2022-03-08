@@ -12,10 +12,13 @@ from onmt.modules.sparse_losses import SparsemaxLoss
 from onmt.modules.sparse_activations import LogSparsemax
 
 class skd_criterion(nn.Module):
-    def __init__(self, ignore_index, reduction):
+    def __init__(self, ignore_index, reduction, alpha=0.1, adaptive=False):
         super(skd_criterion, self).__init__()
         self.ignore_index = ignore_index
         self.reduction = reduction
+        self.adaptive = adaptive
+        self.alpha_origin = alpha
+        self.alpha = alpha
 
     def softmax_cross_entropy_with_softtarget(self, input, target, reduction='mean'):
             """
@@ -49,14 +52,19 @@ class skd_criterion(nn.Module):
             else:
                 raise NotImplementedError('Unsupported reduction mode.')
 
+    def ada_alpha(self, epoch, total_epoch):
+        if self.adaptive:
+            self.alpha = (self.alpha_origin * (total_epoch - epoch)) / total_epoch
+
     def __call__(self,
                  inputs,
                  targets,
                  t_score):
         
         gtruth_onehot = torch.nn.functional.one_hot(targets, t_score.size(-1))
-        alpha = 0.1
-        knowledge = alpha * t_score + (1-alpha) * gtruth_onehot
+        # alpha = 0.1
+        t_score = torch.nn.functional.softmax(t_score, dim=1)
+        knowledge = self.alpha * t_score + (1-self.alpha) * gtruth_onehot
         return self.nll_with_softtarget(inputs, knowledge, reduction=self.reduction)
 
     # def __init__(self, label_smoothing, tgt_vocab_size, ignore_index=-100):
@@ -111,9 +119,9 @@ def build_loss_compute(model, tgt_field, opt, train=True, do_backward=True, teac
         )
     elif isinstance(model.generator[-1], LogSparsemax):
         criterion = SparsemaxLoss(ignore_index=padding_idx, reduction='sum')
-    elif opt.skd:
+    elif opt.skd and teacher is not None:
         # TODO: implement 'ignore_index'
-        criterion = skd_criterion(ignore_index=padding_idx, reduction='sum')
+        criterion = skd_criterion(ignore_index=padding_idx, reduction='sum', alpha=opt.kd_a, adaptive=opt.kd_ada)
     else:
         criterion = nn.NLLLoss(ignore_index=padding_idx, reduction='sum')
 

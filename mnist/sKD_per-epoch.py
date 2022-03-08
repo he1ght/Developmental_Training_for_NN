@@ -9,8 +9,8 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets, transforms
 import copy
 
+from evaluater import top_error
 from mnist_model import *
-from evaluater import * 
 
 start_time = time.time()
 
@@ -60,8 +60,10 @@ parser.add_argument('--gpu', type=int, default=0,
                     help='GPU no. (default: 0)')
 parser.add_argument('--lrate', type=float, default=5e-4,
                     help='L2 Penalty lambda')
+parser.add_argument('--l1', type=float, default=0.,
+                    help='L1 Penalty lambda')
 
-
+num_classes=10
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -71,14 +73,11 @@ if args.cuda:
     device = torch.device('cuda:' + str(args.gpu))
 
 kwargs = {'num_workers': 0, 'pin_memory': True} if args.cuda else {}
-if args.no_limit:
-    tr = datasets.MNIST('./data_mnist', train=True, download=True,
+tr = datasets.MNIST('./data_mnist', train=True, download=True,
                         transform=transforms.Compose([
                             transforms.ToTensor(),
                             transforms.Normalize((0.1307,), (0.3081,))
                         ]))
-else:
-    tr = torch.load(args.data)
 train_loader = torch.utils.data.DataLoader(tr, batch_size=args.batch_size, shuffle=True, **kwargs)
 
 test_loader = torch.utils.data.DataLoader(
@@ -94,8 +93,8 @@ test_loader = torch.utils.data.DataLoader(
 # teacher_model.load_state_dict(checkpoint['model'])
 
 model = ffn_two_layers(args.hidden, args.dropout, batch_norm=args.batch_norm)
-teacher_model = None   
-
+teacher_model = None
+best_acc = 0
 if args.cuda:
     model = model.to(device)
     # teacher_model = teacher_model.to(device)
@@ -129,7 +128,7 @@ def softmax_cross_entropy_with_softtarget(input, target, reduction='mean'):
 
 def self_distillation(y, labels, teacher_scores, loss_type, T, alpha):
     if teacher_scores is not None:
-        labels = torch.nn.functional.one_hot(labels, 100)
+        labels = torch.nn.functional.one_hot(labels, num_classes)
         # pred = y.max(1, keepdim=True)[1].long()
         if loss_type == 'kl':
             return nn.KLDivLoss(reduction='batchmean')(F.log_softmax(y / T, dim=1), (1-alpha)*labels+ alpha*F.log_softmax(teacher_scores / T, dim=1) )          
@@ -167,6 +166,11 @@ def train(epoch, model, loss_fn):
             else:
                 teacher_output = None
         loss = loss_fn(output, target, teacher_output, loss_type=args.kd_loss,  T=args.T, alpha=alpha_t)
+        if args.l1 > 0:
+            l1_loss = 0
+            for param in model.parameters():
+                l1_loss += torch.sum(torch.abs(param))
+            loss += l1_loss * args.l1
         loss.backward()
         optimizer.step()
 
@@ -193,13 +197,14 @@ def train(epoch, model, loss_fn):
 
 
 def test(epoch, model, loss_fn):
-    global teacher_model
+    global teacher_model, best_acc
     model.eval()
     test_loss = 0
     correct = 0
+    ce = 0
     test_te1 = 0
-    test_te5 = 0
-    test_nll = 0
+    test_te3 = 0
+    alpha_t = args.alpha * (epoch / args.epochs)
     with torch.no_grad():
         for data, target in test_loader:
             if args.cuda:
@@ -211,29 +216,33 @@ def test(epoch, model, loss_fn):
                 teacher_output = teacher_output.detach()
             else:
                 teacher_output = None
+            ce += F.cross_entropy(output, target, reduction='sum')
+
             test_loss += loss_fn(output, target, teacher_output, loss_type=args.kd_loss, T=args.T, alpha=args.alpha).detach()
-            te = top_error(output, target, (1, 5))
-            nl = nll(output, target)
+            te = top_error(output, target, (1, 3, 5))
             test_te1 += te[0] * int(data.size(0))
-            test_te5 += te[1] * int(data.size(0))
-            test_nll += nl * int(data.size(0))
+            test_te3 += te[1] * int(data.size(0))
+
             pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
             correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
         test_loss /= len(test_loader.dataset)
         test_te1 /= len(test_loader.dataset)
-        test_te5 /= len(test_loader.dataset)
-        test_nll /= len(test_loader.dataset)
+        test_te3 /= len(test_loader.dataset)
         print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
             test_loss, correct, len(test_loader.dataset),
             100. * correct / len(test_loader.dataset)))
         if writer is not None:
+            writer.add_scalar('test/Xent', ce / len(test_loader.dataset), epoch)
             writer.add_scalar('test/loss', test_loss, epoch)
             writer.add_scalar('test/acc', 100. * correct / len(test_loader.dataset), epoch)
-
+            writer.add_scalar('test/alpha', alpha_t, epoch)
             writer.add_scalar('test/Top Error 1', test_te1, epoch)
-            writer.add_scalar('test/Top Error 5', test_te5, epoch)
-            writer.add_scalar('test/NLL loss', test_nll, epoch)
+            writer.add_scalar('test/Top Error 3', test_te3, epoch)
+        if best_acc < 100. * correct / len(test_loader.dataset):
+            best_acc = 100. * correct / len(test_loader.dataset)
+            save_dict = {'args': args.__dict__, 'model': model.state_dict()}
+            torch.save(save_dict, args.save + '.pt')
 
     with torch.no_grad():
         teacher_model = copy.deepcopy(model)
@@ -247,14 +256,14 @@ def adjust_lr():
     prev_lr = lr
 
 for epoch in range(1, args.epochs + 1):
-    if (epoch == 150 or epoch ==225):
-        adjust_lr()
+    # if (epoch == 150 or epoch ==225):
+    #     adjust_lr()
     train(epoch, model, loss_fn=self_distillation)
     test(epoch, model, loss_fn=self_distillation)
 
 writer.close()
-save_dict = {'args': args.__dict__, 'model': model.state_dict()}
-torch.save(save_dict, args.save + '.pt')
+# save_dict = {'args': args.__dict__, 'model': model.state_dict()}
+# torch.save(save_dict, args.save + '.pt')
 # the_model = Net()
 # the_model.load_state_dict(torch.load('student.pth.tar'))
 

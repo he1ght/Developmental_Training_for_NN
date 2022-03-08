@@ -14,6 +14,12 @@ import traceback
 
 import onmt.utils
 from onmt.utils.logging import logger
+import gc
+
+
+def clean_cuda():
+    gc.collect()
+    torch.cuda.empty_cache()
 
 
 def build_trainer(opt, device_id, model, fields, optim, model_saver=None, teacher=None):
@@ -190,7 +196,7 @@ class Trainer(object):
             self.moving_average = copy_params
         else:
             average_decay = max(self.average_decay,
-                                1 - (step + 1)/(step + 10))
+                                1 - (step + 1) / (step + 10))
             for (i, avg), cpt in zip(enumerate(self.moving_average),
                                      self.model.parameters()):
                 self.moving_average[i] = \
@@ -227,7 +233,9 @@ class Trainer(object):
         total_stats = onmt.utils.Statistics()
         report_stats = onmt.utils.Statistics()
         self._start_report_manager(start_time=total_stats.start_time)
-
+        if self.optim.training_step != 1 and self.teacher is not None:
+            self.train_loss.criterion.ada_alpha(epoch=self.optim.training_step // valid_steps,
+                                                total_epoch=train_steps // valid_steps)
         for i, (batches, normalization) in enumerate(
                 self._accum_batches(train_iter)):
             step = self.optim.training_step
@@ -259,6 +267,7 @@ class Trainer(object):
                 report_stats)
 
             if valid_iter is not None and step % valid_steps == 0:
+                clean_cuda()
                 if self.gpu_verbose_level > 0:
                     logger.info('GpuRank %d: validate step %d'
                                 % (self.gpu_rank, step))
@@ -271,6 +280,8 @@ class Trainer(object):
                 if self.gpu_verbose_level > 0:
                     logger.info('GpuRank %d: report stat step %d'
                                 % (self.gpu_rank, step))
+                if self.teacher is not None:
+                    valid_stats.alpha = self.train_loss.criterion.alpha
                 self._report_step(self.optim.learning_rate(),
                                   step, valid_stats=valid_stats)
                 # Run patience mechanism
@@ -279,10 +290,15 @@ class Trainer(object):
                     # If the patience has reached the limit, stop training
                     if self.earlystopper.has_stopped():
                         break
+                # only for skd
+                if self.teacher is not None:
+                    self.train_loss.criterion.ada_alpha(epoch=step // valid_steps,
+                                                        total_epoch=train_steps // valid_steps)
+                clean_cuda()
 
             if (self.model_saver is not None
-                and (save_checkpoint_steps != 0
-                     and step % save_checkpoint_steps == 0)):
+                    and (save_checkpoint_steps != 0
+                         and step % save_checkpoint_steps == 0)):
                 self.model_saver.save(step, moving_average=self.moving_average)
 
             if train_steps > 0 and step >= train_steps:
@@ -298,31 +314,31 @@ class Trainer(object):
         Returns:
             :obj:`nmt.Statistics`: validation loss statistics
         """
-        valid_model = self.model
+        # valid_model = self.model
         if moving_average:
             # swap model params w/ moving average
             # (and keep the original parameters)
             model_params_data = []
             for avg, param in zip(self.moving_average,
-                                  valid_model.parameters()):
+                                  self.model.parameters()):
                 model_params_data.append(param.data)
                 param.data = avg.data.half() if self.optim._fp16 == "legacy" \
                     else avg.data
-
+        self.optim.zero_grad()
         # Set model in validating mode.
-        valid_model.eval()
+        self.model.eval()
 
         with torch.no_grad():
             stats = onmt.utils.Statistics()
 
             for batch in valid_iter:
                 src, src_lengths = batch.src if isinstance(batch.src, tuple) \
-                                   else (batch.src, None)
+                    else (batch.src, None)
                 tgt = batch.tgt
 
                 # F-prop through the model.
-                outputs, attns, new_cost = valid_model(src, tgt, src_lengths,
-                                             with_align=self.with_align)
+                outputs, attns, new_cost = self.model(src, tgt, src_lengths,
+                                                       with_align=self.with_align)
 
                 # Compute loss.
                 _, batch_stats = self.valid_loss(batch, outputs, attns, new_cost=new_cost)
@@ -335,7 +351,7 @@ class Trainer(object):
                 param.data = param_data
 
         # Set model back to training mode.
-        valid_model.train()
+        self.model.train()
 
         return stats
 
@@ -360,7 +376,7 @@ class Trainer(object):
             tgt_outer = batch.tgt
 
             bptt = False
-            for j in range(0, target_size-1, trunc_size):
+            for j in range(0, target_size - 1, trunc_size):
                 # 1. Create truncated target.
                 tgt = tgt_outer[j: j + trunc_size]
 
@@ -369,11 +385,11 @@ class Trainer(object):
                     self.optim.zero_grad()
 
                 outputs, attns, new_cost = self.model(src, tgt, src_lengths, bptt=bptt,
-                                            with_align=self.with_align)
+                                                      with_align=self.with_align)
                 if self.teacher is not None:
                     with torch.no_grad():
                         t_outputs, t_attns, _ = self.teacher(src, tgt, src_lengths, bptt=bptt,
-                                            with_align=self.with_align)
+                                                             with_align=self.with_align)
                         t_out = t_outputs
                 else:
                     t_out = None
@@ -413,6 +429,7 @@ class Trainer(object):
                         onmt.utils.distributed.all_reduce_and_rescale_tensors(
                             grads, float(1))
                     self.optim.step()
+                    # clean_cuda()
 
                 # If truncated, don't backprop fully.
                 # TO CHECK
@@ -420,6 +437,8 @@ class Trainer(object):
                 #    dec_state.detach()
                 if self.model.decoder.state is not None:
                     self.model.decoder.detach_state()
+            # if self.accum_count == 1:
+            #     clean_cuda()
 
         # in case of multi step gradient accumulation,
         # update only after accum batches
@@ -431,6 +450,7 @@ class Trainer(object):
                 onmt.utils.distributed.all_reduce_and_rescale_tensors(
                     grads, float(1))
             self.optim.step()
+
 
     def _start_report_manager(self, start_time=None):
         """

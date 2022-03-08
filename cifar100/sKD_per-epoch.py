@@ -44,7 +44,7 @@ parser.add_argument('--T', type=int, default=1, metavar='N',
                     help='Temperature')
 parser.add_argument('--alpha', type=float, default=0.7, metavar='N',
                     help='Alpha')
-parser.add_argument('--model', type=str, choices=['ffnn', 'alexnet', 'resnet50'], default='ffnn',
+parser.add_argument('--model', type=str, choices=['wrn', 'ffnn', 'alexnet', 'resnet50'], default='wrn',
                     help='')
 parser.add_argument('--data', type=str, default='cifar_data.pt',
                     help='Data name')
@@ -60,6 +60,8 @@ parser.add_argument('--gpu', type=int, default=0,
                     help='GPU no. (default: 0)')
 parser.add_argument('--lrate', type=float, default=5e-4,
                     help='L2 Penalty lambda')
+parser.add_argument('--cifar', type=int, choices=[10, 100], default=100,
+                    help='')
 
 
 args = parser.parse_args()
@@ -71,36 +73,50 @@ if args.cuda:
     device = torch.device('cuda:' + str(args.gpu))
 
 kwargs = {'num_workers': 0, 'pin_memory': True} if args.cuda else {}
-if args.no_limit:
+if args.cifar == 100:
     tr = datasets.CIFAR100('./data_cifar100', train=True, download=True,
-                        transform=transforms.Compose([
-                            transforms.RandomCrop(32, padding=4),
-                            transforms.RandomHorizontalFlip(),
-                            transforms.ToTensor(),
-                            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-                        ]))
-else:
-    tr = torch.load(args.data)
-train_loader = torch.utils.data.DataLoader(tr, batch_size=args.batch_size, shuffle=True, **kwargs)
+                            transform=transforms.Compose([
+                                transforms.RandomCrop(32, padding=4),
+                                transforms.RandomHorizontalFlip(),
+                                transforms.ToTensor(),
+                                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+                            ]))
+    train_loader = torch.utils.data.DataLoader(tr, batch_size=args.batch_size, shuffle=True, **kwargs)
 
-test_loader = torch.utils.data.DataLoader(
-    datasets.CIFAR100('./data_cifar100', train=False, transform=transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])),
-    batch_size=args.test_batch_size, shuffle=True, **kwargs)
+    test_loader = torch.utils.data.DataLoader(
+        datasets.CIFAR100('./data_cifar100', train=False, transform=transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])),
+        batch_size=args.test_batch_size, shuffle=True, **kwargs)
+elif args.cifar == 10:
+    tr = datasets.CIFAR10('./data_cifar10', train=True, download=True,
+                            transform=transforms.Compose([
+                                transforms.RandomCrop(32, padding=4),
+                                transforms.RandomHorizontalFlip(),
+                                transforms.ToTensor(),
+                                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+                            ]))
+    train_loader = torch.utils.data.DataLoader(tr, batch_size=args.batch_size, shuffle=True, **kwargs)
 
-# checkpoint = torch.load(args.checkpoint)
-# model_args = checkpoint['args']
-# teacher_model = ffn_two_layers(model_args['hidden'], model_args['dropout'], batch_norm=model_args['batch_norm'])
-# teacher_model.load_state_dict(checkpoint['model'])
+    test_loader = torch.utils.data.DataLoader(
+        datasets.CIFAR10('./data_cifar10', train=False, transform=transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])),
+        batch_size=args.test_batch_size, shuffle=True, **kwargs)
+
+num_classes = args.cifar
 
 if args.model == 'ffnn':
-    model = ffn_two_layers(args.hidden, args.dropout, num_classes=100)
+    model = ffn_two_layers(args.hidden, args.dropout, num_classes=num_classes)
 elif args.model == 'alexnet':
-    model = AlexNet(num_classes=100)
+    model = AlexNet(num_classes=num_classes)
 elif args.model == 'resnet50':
-    model = ResNet50(num_classes=100)
+    model = ResNet50(num_classes=num_classes)
+elif args.model == 'wrn':
+    depth, width = 28, 10
+    model = WideResNet(depth, num_classes, widen_factor=width, dropRate=args.dropout)
 else:
     model = None
 teacher_model = None   
@@ -116,7 +132,7 @@ else:
 
 draw_graph = False
 prev_lr = args.lr
-
+best_acc = 0.0
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.lrate)
 
 
@@ -138,7 +154,7 @@ def softmax_cross_entropy_with_softtarget(input, target, reduction='mean'):
 
 def self_distillation(y, labels, teacher_scores, loss_type, T, alpha):
     if teacher_scores is not None:
-        labels = torch.nn.functional.one_hot(labels, 100)
+        labels = torch.nn.functional.one_hot(labels, num_classes)
         # pred = y.max(1, keepdim=True)[1].long()
         if loss_type == 'kl':
             return nn.KLDivLoss(reduction='batchmean')(F.log_softmax(y / T, dim=1), (1-alpha)*labels+ alpha*F.log_softmax(teacher_scores / T, dim=1) )          
@@ -202,7 +218,7 @@ def train(epoch, model, loss_fn):
 
 
 def test(epoch, model, loss_fn):
-    global teacher_model
+    global teacher_model, best_acc
     model.eval()
     test_loss = 0
     correct = 0
@@ -243,6 +259,10 @@ def test(epoch, model, loss_fn):
             writer.add_scalar('test/Top Error 1', test_te1, epoch)
             writer.add_scalar('test/Top Error 5', test_te5, epoch)
             writer.add_scalar('test/NLL loss', test_nll, epoch)
+        if best_acc < 100. * correct / len(test_loader.dataset):
+            best_acc = 100. * correct / len(test_loader.dataset)
+            save_dict = {'args': args.__dict__, 'model': model.state_dict()}
+            torch.save(save_dict, args.save + '.pt')
 
     with torch.no_grad():
         teacher_model = copy.deepcopy(model)
@@ -262,8 +282,8 @@ for epoch in range(1, args.epochs + 1):
     test(epoch, model, loss_fn=self_distillation)
 
 writer.close()
-save_dict = {'args': args.__dict__, 'model': model.state_dict()}
-torch.save(save_dict, args.save + '.pt')
+# save_dict = {'args': args.__dict__, 'model': model.state_dict()}
+# torch.save(save_dict, args.save + '.pt')
 # the_model = Net()
 # the_model.load_state_dict(torch.load('student.pth.tar'))
 

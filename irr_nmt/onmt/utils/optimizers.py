@@ -159,6 +159,12 @@ def exponential_decay(step, rate, decay_steps, start_step=0):
     """
     return rate ** (max(step - start_step + decay_steps, 0) // decay_steps)
 
+def linear_decay(step, rate, decay_steps, start_step=0):
+    if step < start_step:
+        return rate
+    else:
+        pass
+    return rate ** (max(step - start_step + decay_steps, 0) // decay_steps)
 
 def rsqrt_decay(step, warmup_steps):
     """Decay based on the reciprocal of the step square root."""

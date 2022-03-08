@@ -18,6 +18,15 @@ from onmt.utils.misc import tile, set_random_seed, report_matrix
 from onmt.utils.alignment import extract_alignment, build_align_pharaoh
 from onmt.modules.copy_generator import collapse_copy_scores
 
+def _tally_parameters(model):
+    enc = 0
+    dec = 0
+    for name, param in model.named_parameters():
+        if 'encoder' in name:
+            enc += param.nelement()
+        else:
+            dec += param.nelement()
+    return enc + dec, enc, dec
 
 def build_translator(opt, report_score=True, logger=None, out_file=None):
     if out_file is None:
@@ -26,6 +35,11 @@ def build_translator(opt, report_score=True, logger=None, out_file=None):
     load_test_model = onmt.decoders.ensemble.load_test_model \
         if len(opt.models) > 1 else onmt.model_builder.load_test_model
     fields, model, model_opt = load_test_model(opt)
+    print(model)
+    n_params, enc, dec = _tally_parameters(model)
+    print('encoder: %d' % enc)
+    print('decoder: %d' % dec)
+    print('* number of parameters: %d' % n_params)
 
     scorer = onmt.translate.GNMTGlobalScorer.from_opt(opt)
 

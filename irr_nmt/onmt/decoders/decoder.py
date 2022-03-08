@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+from onmt.models import AllForgetInputFeedLSTM
 from onmt.models.stacked_rnn import StackedLSTM, StackedGRU
 from onmt.modules import context_gate_factory, GlobalAttention
 from onmt.utils.rnn_factory import rnn_factory
@@ -426,7 +427,7 @@ class InputFeedRNNDecoder(RNNDecoderBase):
                    hidden_size, num_layers, dropout):
         assert rnn_type != "SRU", "SRU doesn't support input feed! " \
             "Please set -input_feed 0!"
-        stacked_cell = StackedLSTM if rnn_type == "LSTM" else StackedGRU
+        stacked_cell = StackedLSTM if rnn_type == "LSTM" else AllForgetInputFeedLSTM if rnn_type == "AFLSTM" else StackedGRU
         return stacked_cell(num_layers, input_size, hidden_size, dropout)
 
     @property

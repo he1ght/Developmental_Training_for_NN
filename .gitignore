@@ -130,5 +130,6 @@ auto_*.py
 tb_log/
 data/
 
-cifar10/
+#cifar10/
 data_cifar100/
+data_cifar10/

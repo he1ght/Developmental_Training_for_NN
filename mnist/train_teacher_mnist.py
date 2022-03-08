@@ -6,6 +6,7 @@ import torch
 import torch.optim as optim
 from torchvision import datasets, transforms
 
+from evaluater import top_error
 from mnist_model import *
 from torch.utils.tensorboard import SummaryWriter
 
@@ -35,7 +36,7 @@ parser.add_argument('--hidden', type=int, default=1000, metavar='N',
                     help='hidden unit size')
 parser.add_argument('--batch-norm', action='store_true', default=False,
                     help='batch_norm')
-parser.add_argument('--dropout', type=float, default=0.1,
+parser.add_argument('--dropout', type=float, default=0.,
                     help='dropout rate')
 parser.add_argument('--no-limit', default=False, action='store_true',
                     help='No limit MNIST data size')
@@ -49,6 +50,10 @@ parser.add_argument('--gpu', type=int, default=0,
                     help='GPU no. (default: 0)')
 parser.add_argument('--lrate', type=float, default=5e-4,
                     help='L2 Penalty lambda')
+parser.add_argument('--ls', type=float, default=0.,
+                    help='LS epsilono')
+parser.add_argument('--l1', type=float, default=0.,
+                    help='L1 Penalty lambda')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -62,17 +67,14 @@ if args.tensorboard:
 else:
     writer = None
 draw_graph = False
-
+best_acc = 0
 kwargs = {'num_workers': 0, 'pin_memory': True} if args.cuda else {}
 
-if args.no_limit:
-    tr = datasets.MNIST('./data_mnist', train=True, download=True,
+tr = datasets.MNIST('./data_mnist', train=True, download=True,
                         transform=transforms.Compose([
                             transforms.ToTensor(),
                             transforms.Normalize((0.1307,), (0.3081,))
                         ]))
-else:
-    tr = torch.load(args.data)
 train_loader = torch.utils.data.DataLoader(tr, batch_size=args.batch_size, shuffle=True, **kwargs)
 
 test_loader = torch.utils.data.DataLoader(
@@ -91,7 +93,31 @@ if args.cuda:
 
 optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum,
                       weight_decay=args.lrate)
-crit = torch.nn.CrossEntropyLoss()
+
+def linear_combination(x, y, epsilon):
+    return epsilon * x + (1 - epsilon) * y
+
+
+def reduce_loss(loss, reduction='mean'):
+    return loss.mean() if reduction == 'mean' else loss.sum() if reduction == 'sum' else loss
+
+class LabelSmoothingCrossEntropy(nn.Module):
+    def __init__(self, epsilon: float = 0.1, reduction='mean'):
+        super().__init__()
+        self.epsilon = epsilon
+        self.reduction = reduction
+
+    def forward(self, preds, target):
+        n = preds.size()[-1]
+        log_preds = F.log_softmax(preds, dim=-1)
+        loss = reduce_loss(-log_preds.sum(dim=-1), self.reduction)
+        nll = F.nll_loss(log_preds, target, reduction=self.reduction)
+        return linear_combination(loss / n, nll, self.epsilon)
+
+if args.ls > 0:
+    crit = LabelSmoothingCrossEntropy(epsilon=args.ls)
+else:
+    crit = torch.nn.CrossEntropyLoss()
 
 progress_x_axis = 0
 
@@ -109,6 +135,11 @@ def train(epoch, model):
         optimizer.zero_grad()
         output = model(data)
         loss = crit(output, target)
+        if args.l1 > 0:
+            l1_loss = 0
+            for param in model.parameters():
+                l1_loss += torch.sum(torch.abs(param))
+            loss += l1_loss * args.l1
         loss.backward()
         optimizer.step()
         train_loss += loss.item()  # sum up batch loss
@@ -131,31 +162,49 @@ def train(epoch, model):
 
 def test(epoch, model):
     model.eval()
+    global best_acc
     test_loss = 0
     correct = 0
+    test_te1 = 0
+    test_te3 = 0
     for data, target in test_loader:
         if args.cuda:
             data, target = data.to(device), target.to(device)
         output = model(data)
         test_loss += F.cross_entropy(output, target).item()  # sum up batch loss
+        te = top_error(output, target, (1, 3, 5))
+        test_te1 += te[0] * int(data.size(0))
+        test_te3 += te[1] * int(data.size(0))
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
     test_loss /= len(test_loader.dataset)
+    test_te1 /= len(test_loader.dataset)
+    test_te3 /= len(test_loader.dataset)
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
     if writer is not None:
         writer.add_scalar('test/loss', test_loss, epoch)
         writer.add_scalar('test/acc', 100. * correct / len(test_loader.dataset), epoch)
+        writer.add_scalar('test/Top Error 1', test_te1, epoch)
+        writer.add_scalar('test/Top Error 3', test_te3, epoch)
+    if best_acc < 100. * correct / len(test_loader.dataset):
+        best_acc = 100. * correct / len(test_loader.dataset)
+        save_dict = {'args': args.__dict__, 'model': model.state_dict()}
+        torch.save(save_dict, args.save + '.pt')
 
 for epoch in range(1, args.epochs + 1):
     train(epoch, model)
     test(epoch, model)
+if args.epochs == 0:
+    save_dict = {'args': args.__dict__, 'model': model.state_dict()}
+    torch.save(save_dict, args.save + '.pt')
 
-writer.close()
-save_dict = {'args': args.__dict__, 'model': model.state_dict()}
-torch.save(save_dict, args.save + '.pt')
+if writer is not None:
+    writer.close()
+# save_dict = {'args': args.__dict__, 'model': model.state_dict()}
+# torch.save(save_dict, args.save + '.pt')
 # the_model = Net()
 # the_model.load_state_dict(torch.load('teacher_MLP.pth.tar'))
 

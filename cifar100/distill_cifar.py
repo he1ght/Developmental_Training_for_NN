@@ -43,13 +43,13 @@ parser.add_argument('--T', type=int, default=1, metavar='N',
                     help='Temperature')
 parser.add_argument('--alpha', type=float, default=0.7, metavar='N',
                     help='Alpha')
-parser.add_argument('--checkpoint', type=str, default='teacher_MLP.pt',
+parser.add_argument('--teacher', type=str, default='teacher_MLP.pt',
                     help='Checkpoint name')
 parser.add_argument('--data', type=str, default='mnist_data.pt',
                     help='Data name')
 parser.add_argument('--save', type=str, default='distill',
                     help='Save name')
-parser.add_argument('--model', type=str, choices=['ffnn', 'alexnet', 'resnet50'], default='ffnn',
+parser.add_argument('--model', type=str, choices=['ffnn', 'alexnet', 'resnet50', 'wrn'], default='ffnn',
                     help='')
 parser.add_argument('--kd_loss', type=str, choices=['kl', 'ce'], default='ce',
                     help='Knowledge distillation loss type. [KL-divergence, Cross Entropy]')
@@ -59,10 +59,16 @@ parser.add_argument('--tb_dir', type=str, default='tb_log/',
                     help='Tensorboard log dir')
 parser.add_argument('--gpu', type=int, default=0,
                     help='GPU no. (default: 0)')
+parser.add_argument('--l1', type=float, default=0,
+                    help='L1 Penalty lambda')
 parser.add_argument('--lrate', type=float, default=5e-4,
                     help='L2 Penalty lambda')
 parser.add_argument('--ada-alpha', action='store_true', default=False,
                     help='Adaptive alpha')
+parser.add_argument('--cifar', type=int, choices=[10, 100], default=100,
+                    help='')
+parser.add_argument('--ls', type=float, default=0.0,
+                    help='Ls')
 
 
 args = parser.parse_args()
@@ -75,46 +81,75 @@ if args.cuda:
     device = torch.device('cuda:' + str(args.gpu))
 
 kwargs = {'num_workers': 0, 'pin_memory': True} if args.cuda else {}
-if args.no_limit:
+if args.cifar == 100:
     tr = datasets.CIFAR100('./data_cifar100', train=True, download=True,
-                        transform=transforms.Compose([
-                            transforms.RandomCrop(32, padding=4),
-                            transforms.RandomHorizontalFlip(),
-                            transforms.ToTensor(),
-                            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-                        ]))
-else:
-    tr = torch.load(args.data)
-train_loader = torch.utils.data.DataLoader(tr, batch_size=args.batch_size, shuffle=True, **kwargs)
+                            transform=transforms.Compose([
+                                transforms.RandomCrop(32, padding=4),
+                                transforms.RandomHorizontalFlip(),
+                                transforms.ToTensor(),
+                                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+                            ]))
+    train_loader = torch.utils.data.DataLoader(tr, batch_size=args.batch_size, shuffle=True, **kwargs)
 
-test_loader = torch.utils.data.DataLoader(
-    datasets.CIFAR100('./data_cifar100', train=False, transform=transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])),
-    batch_size=args.test_batch_size, shuffle=True, **kwargs)
+    test_loader = torch.utils.data.DataLoader(
+        datasets.CIFAR100('./data_cifar100', train=False, transform=transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])),
+        batch_size=args.test_batch_size, shuffle=True, **kwargs)
+elif args.cifar == 10:
+    tr = datasets.CIFAR10('./data_cifar10', train=True, download=True,
+                            transform=transforms.Compose([
+                                transforms.RandomCrop(32, padding=4),
+                                transforms.RandomHorizontalFlip(),
+                                transforms.ToTensor(),
+                                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+                            ]))
+    train_loader = torch.utils.data.DataLoader(tr, batch_size=args.batch_size, shuffle=True, **kwargs)
 
+    test_loader = torch.utils.data.DataLoader(
+        datasets.CIFAR10('./data_cifar10', train=False, transform=transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])),
+        batch_size=args.test_batch_size, shuffle=True, **kwargs)
+
+num_classes = args.cifar
 if args.model == 'ffnn':
-    model = ffn_two_layers(args.hidden, args.dropout, num_classes=100)
+    model = ffn_two_layers(args.hidden, args.dropout, num_classes=num_classes)
 elif args.model == 'alexnet':
-    model = AlexNet(num_classes=100)
+    model = AlexNet(num_classes=num_classes)
 elif args.model == 'resnet50':
-    model = ResNet50(num_classes=100)
+    model = ResNet50(num_classes=num_classes)
+elif args.model == 'wrn': # wide resnet
+    depth, width = 28, 10
+    # model = Wide_ResNet(depth, width, args.dropout, num_classes=num_classes)
+    model = WideResNet(depth, num_classes, widen_factor=width, dropRate=args.dropout)
 else:
     model = None
-checkpoint = torch.load(args.checkpoint, map_location=lambda storage, loc: storage.cuda(args.gpu))
-model_args = checkpoint['args']
+
+# torch.hub.load('pytorch/vision:v0.6.0', 'wide_resnet50_2', pretrained=True)
+
+teacher = torch.load(args.teacher, map_location=lambda storage, loc: storage.cuda(args.gpu))
+# teacher = torch.load(args.teacher, map_location=lambda storage, loc: storage)
+model_args = teacher['args']
 # model_args['gpu'] = args.gpu
 if model_args['model'] == 'ffnn':
-    teacher_model = ffn_two_layers(args.hidden, args.dropout, num_classes=100)
+    teacher_model = ffn_two_layers(args.hidden, args.dropout, num_classes=num_classes)
 elif model_args['model'] == 'alexnet':
-    teacher_model = AlexNet(num_classes=100)
+    teacher_model = AlexNet(num_classes=num_classes)
 elif model_args['model'] == 'resnet50':
-    teacher_model = ResNet50(num_classes=100)
+    teacher_model = ResNet50(num_classes=num_classes)
+elif model_args['model'] == 'wrn': # wide resnet
+    depth, width = 28, 10
+    # teacher_model = Wide_ResNet(depth, width, model_args['dropout'], num_classes=num_classes)
+    teacher_model = WideResNet(depth, num_classes, widen_factor=width, dropRate=model_args['dropout'])
 else:
     teacher_model = None
 
-teacher_model.load_state_dict(checkpoint['model'])
+
+
+teacher_model.load_state_dict(teacher['model'])
 if args.cuda:
     model = model.to(device)
     teacher_model = teacher_model.to(device)
@@ -145,9 +180,14 @@ def softmax_cross_entropy_with_softtarget(input, target, reduction='mean', T=1):
         else:
             raise NotImplementedError('Unsupported reduction mode.')
 
-def distillation(y, labels, teacher_scores, loss_type, T, alpha):
+def distillation(y, labels, teacher_scores, loss_type, T, alpha, ls=0.0):
     if loss_type == 'ce':
-        return softmax_cross_entropy_with_softtarget(y, F.softmax(teacher_scores / T, dim=1)) * (T * T * alpha)  + F.cross_entropy(y, labels) * (1. - alpha)
+        if ls > 0:
+            return softmax_cross_entropy_with_softtarget(y, F.softmax(teacher_scores, dim=1)) * alpha \
+                   + softmax_cross_entropy_with_softtarget(y, torch.ones_like(y) / y.size(-1)) * ls \
+                   + F.cross_entropy(y, labels) * (1. - alpha - ls)
+        else:
+            return softmax_cross_entropy_with_softtarget(y, F.softmax(teacher_scores / T, dim=1)) * (T * T * alpha)  + F.cross_entropy(y, labels) * (1. - alpha)
     elif loss_type == 'kl':
         return nn.KLDivLoss(reduction='batchmean')(F.log_softmax(y / T, dim=1), F.softmax(teacher_scores / T, dim=1)) *\
                (T * T * 2.0 * alpha) + F.cross_entropy(y, labels) * (1. - alpha)
@@ -155,6 +195,7 @@ def distillation(y, labels, teacher_scores, loss_type, T, alpha):
         return None
 
 progress_x_axis = 0
+best_acc = 0.0
 
 def train(epoch, model, loss_fn):
     model.train()
@@ -178,6 +219,11 @@ def train(epoch, model, loss_fn):
         teacher_output = teacher_model(data)
         teacher_output = teacher_output.detach()
         loss = loss_fn(output, target, teacher_output, loss_type=args.kd_loss, T=args.T, alpha=alpha_t)
+        if args.l1 > 0:
+            l1_loss = 0
+            for param in model.parameters():
+                l1_loss += torch.sum(torch.abs(param))
+            loss += l1_loss * args.l1
         loss.backward()
         optimizer.step()
 
@@ -204,10 +250,12 @@ def train(epoch, model, loss_fn):
 
 
 def test(epoch, model, loss_fn):
+    global best_acc
     model.eval()
     test_loss = 0
     correct = 0
     test_te1 = 0
+    test_te3 = 0
     test_te5 = 0
     test_nll = 0
     with torch.no_grad():
@@ -222,16 +270,18 @@ def test(epoch, model, loss_fn):
             teacher_output = teacher_model(data)
             teacher_output = teacher_output.detach()
             test_loss += loss_fn(output, target, teacher_output, loss_type=args.kd_loss, T=args.T, alpha=alpha_t).detach()
-            te = top_error(output, target, (1, 5))
+            te = top_error(output, target, (1, 3, 5))
             nl = nll(output, target)
             test_te1 += te[0] * int(data.size(0))
-            test_te5 += te[1] * int(data.size(0))
+            test_te3 += te[1] * int(data.size(0))
+            test_te5 += te[2] * int(data.size(0))
             test_nll += nl * int(data.size(0))
             pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
             correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
         test_loss /= len(test_loader.dataset)
         test_te1 /= len(test_loader.dataset)
+        test_te3 /= len(test_loader.dataset)
         test_te5 /= len(test_loader.dataset)
         test_nll /= len(test_loader.dataset)
         print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
@@ -242,32 +292,34 @@ def test(epoch, model, loss_fn):
             writer.add_scalar('test/acc', 100. * correct / len(test_loader.dataset), epoch)
 
             writer.add_scalar('test/Top Error 1', test_te1, epoch)
+            writer.add_scalar('test/Top Error 3', test_te3, epoch)
             writer.add_scalar('test/Top Error 5', test_te5, epoch)
             writer.add_scalar('test/NLL loss', test_nll, epoch)
+        if best_acc < 100. * correct / len(test_loader.dataset):
+            best_acc = 100. * correct / len(test_loader.dataset)
+            save_dict = {'args': args.__dict__, 'model': model.state_dict()}
+            torch.save(save_dict, args.save + '.pt')
 
 
-def adjust_lr():
+def adjust_lr(rate=0.1):
     global prev_lr
-    lr = prev_lr * 0.1
+    lr = prev_lr * rate
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     prev_lr = lr
 
+
 for epoch in range(1, args.epochs + 1):
-    if for_sKD_diff_test and (epoch == 150 or epoch ==225):
+    if args.model == 'resnet50' and (epoch == 150 or epoch == 225):
         adjust_lr()
+    if args.model == 'wrn' and (epoch == 60 or epoch == 120 or epoch == 160):
+        adjust_lr(rate=0.2)
     train(epoch, model, loss_fn=distillation)
     test(epoch, model, loss_fn=distillation)
+    print("--- Time taken so far [E {}]: {}".format(epoch, time.time() - start_time))
 
 writer.close()
-save_dict = {'args': args.__dict__, 'model': model.state_dict()}
-torch.save(save_dict, args.save + '.pt')
-# the_model = Net()
-# the_model.load_state_dict(torch.load('student.pth.tar'))
+# save_dict = {'args': args.__dict__, 'model': model.state_dict()}
+# torch.save(save_dict, args.save + '.pt')
 
-# test(the_model)
-# for data, target in test_loader:
-#     data, target = Variable(data, volatile=True), Variable(target)
-#     teacher_out = the_model(data)
-# print(teacher_out)
 print("--- %s seconds ---" % (time.time() - start_time))

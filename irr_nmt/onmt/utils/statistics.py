@@ -27,6 +27,8 @@ class Statistics(object):
         # Separate CE loss
         self.raw_loss = 0
         self.new_loss = 0
+        # Teacher rate
+        self.alpha = 0
 
     @staticmethod
     def all_gather_stats(stat, max_size=4096):
@@ -101,13 +103,13 @@ class Statistics(object):
         """ compute cross entropy """
         if not self.n_words:
             return 0
-        return self.raw_loss / self.n_words
+        return self.loss / self.n_words
 
     def ppl(self):
         """ compute perplexity """
         if not self.n_words:
             return 0
-        return math.exp(min(self.raw_loss / self.n_words, 100))
+        return math.exp(min(self.loss / self.n_words, 100))
 
     def elapsed_time(self):
         """ compute elapsed time """
@@ -145,8 +147,10 @@ class Statistics(object):
         t = self.elapsed_time()
         # writer.add_scalar(prefix + "/loss", self.loss, step)
         writer.add_scalar(prefix + "/xent", self.xent(), step)
-        writer.add_scalar(prefix + "/ce_loss", self.new_loss, step)
+        # writer.add_scalar(prefix + "/ce_loss", self.new_loss, step)
         writer.add_scalar(prefix + "/ppl", self.ppl(), step)
         writer.add_scalar(prefix + "/accuracy", self.accuracy(), step)
         writer.add_scalar(prefix + "/tgtper", self.n_words / t, step)
         writer.add_scalar(prefix + "/lr", learning_rate, step)
+        if self.alpha > 0:
+            writer.add_scalar(prefix + "/train_teacher_rate", self.alpha, step)

@@ -114,7 +114,7 @@ def model_opts(parser):
               help="Have an additional layer between the last encoder "
                    "state and the first decoder state")
     group.add('--rnn_type', '-rnn_type', type=str, default='LSTM',
-              choices=['LSTM', 'GRU', 'SRU'],
+              choices=['LSTM', 'GRU', 'SRU', 'AFLSTM'],
               action=CheckSRU,
               help="The gate type to use in the RNNs")
     # group.add('--residual', '-residual',   action="store_true",
@@ -606,6 +606,8 @@ def train_opts(parser):
               help="Teacher Model Rate")
     group.add('--kd_ada', '-kd_ada', action='store_true',
               help="Adaptive alpha(teacher rate)")
+    group.add('--sub_gpu', '-sub_gpu', default=None, type=int,
+              help="Sub gpu for teacher model")
 
 
 def translate_opts(parser):
